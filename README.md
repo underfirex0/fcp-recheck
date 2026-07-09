@@ -50,6 +50,21 @@ part of Vertex AI auth that doesn't "just work" the way an API key does; the pla
 API key (Option B in `.env.example`) is the simpler path if you want zero extra auth setup,
 at the cost of not drawing directly on your GCP credits.
 
+## Splitting Tavily usage across multiple free-tier accounts
+
+584 companies × 2 searches ≈ 1,168 credits — just over a single 1,000-credit free
+account. Instead of manually swapping keys mid-run, set:
+
+```
+TAVILY_API_KEYS=tvly-key1,tvly-key2
+```
+
+(comma-separated, no spaces) in place of the single `TAVILY_API_KEY`. The app tries
+each key in order and automatically moves to the next one the moment a key returns
+Tavily's "out of credits" response (HTTP 432) — no redeploy or manual intervention
+needed mid-run. Two free accounts (2,000 credits) comfortably covers the full run
+with room for retries.
+
 ## Cost expectations (584 companies)
 
 - **Tavily**: ~1,168 basic searches (2 per company) ≈ $9–19 depending on plan/PAYG rate.
