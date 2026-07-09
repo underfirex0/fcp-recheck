@@ -130,9 +130,26 @@ export default function Home() {
         const res = await fetch("/api/process-batch", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ batchSize: 10 })
+          body: JSON.stringify({ batchSize: 4 })
         });
-        const data = await res.json();
+
+        const rawText = await res.text();
+        let data: any;
+        try {
+          data = JSON.parse(rawText);
+        } catch {
+          // Response wasn't JSON at all — almost always means the serverless
+          // function itself timed out or crashed (Vercel's own error page),
+          // not something our API code returned. Surface a clear message and
+          // stop the loop, but keep whatever was already saved to Supabase —
+          // resuming will pick up right where it left off.
+          await refreshResults();
+          throw new Error(
+            "Le serveur a mis trop de temps à répondre (timeout probable). Les entreprises déjà " +
+              "traitées sont sauvegardées — cliquez à nouveau sur 'Lancer le traitement' pour reprendre."
+          );
+        }
+
         if (!res.ok) throw new Error(data.error || "Erreur pendant le traitement.");
 
         if (data.failed?.length) {
@@ -145,6 +162,7 @@ export default function Home() {
       }
     } catch (err: any) {
       setErrors((prev) => [...prev, { code_firme: "—", error: err.message }]);
+      await refreshResults();
     } finally {
       setProcessing(false);
     }
