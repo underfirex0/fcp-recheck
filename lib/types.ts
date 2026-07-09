@@ -1,5 +1,13 @@
-export type FieldStatus = "confirmed" | "conflicting" | "not_found";
-export type Verdict = "Confirmé" | "À corriger" | "Donnée insuffisante";
+/** Raw status from a single extraction pass (before fallback/estimation logic runs). */
+export type RawStatus = "confirmed" | "conflicting" | "not_found";
+
+/** Final, stored status after the full 4-layer pipeline has run for a field group. */
+export type FinalStatus = "confirmed" | "estimated" | "not_found";
+
+/** Which layer actually produced the final value for a field group. */
+export type SourceLayer = "grounding" | "tavily" | "estimated" | null;
+
+export type Verdict = "Confirmé" | "À corriger" | "Estimé" | "Donnée insuffisante";
 export type ModelUsed = "flash" | "pro" | null;
 
 export interface Company {
@@ -19,46 +27,72 @@ export interface TavilyResult {
   content: string;
 }
 
-/** The exact JSON shape we force Gemini to return for one company. */
+export interface GroundedAnswer {
+  text: string;
+  sources: string[]; // resolved best-effort from grounding citations
+}
+
+/** One field group's raw extraction result, before fallback/estimation is applied. */
+export interface CaExtraction {
+  value_mad: number | null;
+  year: number | null;
+  status: RawStatus;
+  confidence: number; // 0-100
+  sources: string[];
+  reasoning: string;
+}
+
+export interface ExportExtraction {
+  value_mad: number | null; // "CA Export" raw amount, in MAD
+  pct: number | null; // "% CA Export"
+  year: number | null;
+  status: RawStatus;
+  confidence: number; // 0-100
+  sources: string[];
+  reasoning: string;
+}
+
+/** The exact JSON shape we force Gemini to return when extracting from grounded/Tavily text. */
 export interface GeminiExtraction {
-  ca: {
-    value_mad: number | null;
-    year: number | null;
-    status: FieldStatus;
-    confidence: number; // 0-100
-    sources: string[];
-    reasoning: string;
-  };
-  export: {
-    pct: number | null;
-    year: number | null;
-    status: FieldStatus;
-    confidence: number; // 0-100
-    sources: string[];
-    reasoning: string;
-  };
+  ca: CaExtraction;
+  export: ExportExtraction;
+}
+
+/** Output of the estimation layer (Layer 4) — used only when real search truly found nothing. */
+export interface EstimationResult {
+  value_mad: number | null;
+  pct: number | null; // only used for the export estimation call
+  confidence: number; // deliberately capped low (see lib/gemini.ts)
+  reasoning: string;
 }
 
 export interface RecheckResult {
   code_firme: string;
 
+  // --- Chiffre d'affaires ---
   ca_value_mad: number | null;
   ca_year: number | null;
-  ca_status: FieldStatus;
+  ca_status: FinalStatus;
   ca_confidence: number;
   ca_sources: string[];
   ca_reasoning: string;
+  ca_layer: SourceLayer;
   ca_bracket_current: string | null;
   ca_bracket_suggested: string | null;
   ca_verdict: Verdict;
   ca_model_used: ModelUsed;
 
+  // --- CA Export (raw amount) + % CA Export ---
+  export_value_mad: number | null;
+  export_value_derived: boolean; // true if computed from ca_value_mad * pct rather than found directly
   export_pct: number | null;
   export_year: number | null;
-  export_status: FieldStatus;
+  export_status: FinalStatus;
   export_confidence: number;
   export_sources: string[];
   export_reasoning: string;
+  export_layer: SourceLayer;
+  export_verdict: Verdict;
   export_model_used: ModelUsed;
 
   processed_at: string;

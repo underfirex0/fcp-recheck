@@ -42,23 +42,28 @@ export async function GET() {
       "Tranche CA millions DH (actuelle)": c.tranche_ca_actuelle ?? "",
       "ANNEE CA (actuelle)": c.annee_ca_actuelle ?? "",
 
-      // Recheck output — before/after, never overwriting the original.
+      // CA recheck — before/after.
       "Tranche CA suggérée": r?.ca_bracket_suggested ?? "",
       "Statut CA": r?.ca_verdict ?? "Non traité",
       "CA valeur brute (MAD)": r?.ca_value_mad ?? "",
       "Année CA (source)": r?.ca_year ?? "",
       "SOURCE CA": joinSources(r?.ca_sources),
       "Confiance CA (%)": r?.ca_confidence ?? "",
+      "Niveau (CA)": r?.ca_layer ?? "",
       "Modèle utilisé (CA)": r?.ca_model_used ?? "",
       "Raisonnement CA": r?.ca_reasoning ?? "",
 
+      // Export — net new fields.
+      "CA Export (MAD)": r?.export_value_mad ?? "",
+      "CA Export calculé (non sourcé)": r?.export_value_derived ? "Oui" : "",
       "% CA EXPORT": r?.export_pct ?? "",
       "ANNEE CA EXPORT": r?.export_year ?? "",
       "SOURCE CA Export": joinSources(r?.export_sources),
       "Confiance Export (%)": r?.export_confidence ?? "",
+      "Niveau (Export)": r?.export_layer ?? "",
       "Modèle utilisé (Export)": r?.export_model_used ?? "",
       "Raisonnement Export": r?.export_reasoning ?? "",
-      "Statut Export": r ? (r.export_status === "not_found" ? "Donnée insuffisante" : "Trouvé") : "Non traité"
+      "Statut Export": r?.export_verdict ?? "Non traité"
     };
   });
 

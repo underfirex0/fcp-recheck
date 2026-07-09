@@ -101,6 +101,7 @@ th { color: var(--text-secondary); font-weight: 500; position: sticky; top: 0; b
 }
 .badge-confirme { background: rgba(42,122,82,0.2); color: #4fbf85; }
 .badge-corriger { background: rgba(200,98,42,0.2); color: #e08a52; }
+.badge-estime { background: rgba(79,124,255,0.2); color: #7d9dff; }
 .badge-insuffisante { background: rgba(184,64,64,0.2); color: #e07070; }
 .badge-neutral { background: var(--border); color: var(--text-secondary); }
 

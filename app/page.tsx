@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-type Verdict = "Confirmé" | "À corriger" | "Donnée insuffisante";
+type Verdict = "Confirmé" | "À corriger" | "Estimé" | "Donnée insuffisante";
 
 interface CompanyRow {
   code_firme: string;
@@ -17,14 +17,21 @@ interface ResultRow {
   ca_verdict: Verdict;
   ca_year: number | null;
   ca_confidence: number;
+  ca_layer: string | null;
   ca_model_used: string | null;
   ca_sources: string[];
+  ca_reasoning: string;
+
+  export_value_mad: number | null;
+  export_value_derived: boolean;
   export_pct: number | null;
   export_year: number | null;
+  export_verdict: Verdict;
   export_confidence: number;
+  export_layer: string | null;
   export_model_used: string | null;
-  export_status: string;
   export_sources: string[];
+  export_reasoning: string;
 }
 
 interface Row {
@@ -36,6 +43,7 @@ const FILTERS: { label: string; verdict: Verdict | "Tous" | "Non traité" }[] = 
   { label: "Tous", verdict: "Tous" },
   { label: "Confirmé", verdict: "Confirmé" },
   { label: "À corriger", verdict: "À corriger" },
+  { label: "Estimé", verdict: "Estimé" },
   { label: "Donnée insuffisante", verdict: "Donnée insuffisante" },
   { label: "Non traité", verdict: "Non traité" }
 ];
@@ -46,11 +54,18 @@ function verdictBadgeClass(verdict: Verdict | "Non traité"): string {
       return "badge badge-confirme";
     case "À corriger":
       return "badge badge-corriger";
+    case "Estimé":
+      return "badge badge-estime";
     case "Donnée insuffisante":
       return "badge badge-insuffisante";
     default:
       return "badge badge-neutral";
   }
+}
+
+function formatMad(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  return new Intl.NumberFormat("fr-FR").format(value) + " MAD";
 }
 
 export default function Home() {
@@ -142,7 +157,7 @@ export default function Home() {
   const filteredRows = rows.filter((r) => {
     if (filter === "Tous") return true;
     if (filter === "Non traité") return r.result === null;
-    return r.result?.ca_verdict === filter;
+    return r.result?.ca_verdict === filter || r.result?.export_verdict === filter;
   });
 
   const progressPct = total > 0 ? Math.round((processedCount / total) * 100) : 0;
@@ -151,8 +166,9 @@ export default function Home() {
     <main className="container">
       <h1>FCP — Recheck CA & Export</h1>
       <p className="subtitle">
-        Vérification du chiffre d'affaires (tranche) et de la part export pour chaque entreprise membre,
-        avec sources et niveau de confiance.
+        Vérification du chiffre d'affaires (tranche), du CA export et de la part export pour chaque
+        entreprise membre — recherche via Gemini (Google Search), secours Tavily, puis estimation
+        raisonnée si aucune source n'est trouvée.
       </p>
 
       <div className="panel">
@@ -222,17 +238,21 @@ export default function Home() {
           ))}
         </div>
 
-        <div style={{ overflowX: "auto", maxHeight: 600, overflowY: "auto" }}>
+        <div style={{ overflowX: "auto", maxHeight: 650, overflowY: "auto" }}>
           <table>
             <thead>
               <tr>
                 <th>Entreprise</th>
                 <th>Ville</th>
                 <th>Tranche CA (avant / après)</th>
-                <th>Statut</th>
+                <th>Année CA</th>
+                <th>Statut CA</th>
+                <th>Niveau CA</th>
+                <th>CA Export</th>
                 <th>% Export</th>
-                <th>Confiance</th>
-                <th>Modèle</th>
+                <th>Année Export</th>
+                <th>Statut Export</th>
+                <th>Niveau Export</th>
                 <th>Sources</th>
               </tr>
             </thead>
@@ -248,23 +268,39 @@ export default function Home() {
                     <div className="diff-old">{company.tranche_ca_actuelle}</div>
                     <div className="diff-new">{result?.ca_bracket_suggested ?? "—"}</div>
                   </td>
+                  <td>{result?.ca_year ?? "—"}</td>
                   <td>
                     <span className={verdictBadgeClass(result?.ca_verdict ?? ("Non traité" as const))}>
                       {result?.ca_verdict ?? "Non traité"}
                     </span>
+                    <div className="subtitle" style={{ margin: 0 }}>
+                      {result ? `${result.ca_confidence}% conf.` : ""}
+                    </div>
                   </td>
+                  <td>{result?.ca_layer ?? "—"}</td>
                   <td>
-                    {result?.export_status === "not_found"
-                      ? "—"
-                      : result?.export_pct != null
-                      ? `${result.export_pct}% (${result.export_year ?? "?"})`
-                      : "—"}
+                    {formatMad(result?.export_value_mad)}
+                    {result?.export_value_derived && (
+                      <div className="subtitle" style={{ margin: 0 }}>(calculé)</div>
+                    )}
                   </td>
-                  <td>{result ? `${result.ca_confidence}%` : "—"}</td>
-                  <td>{result?.ca_model_used ?? "—"}</td>
+                  <td>{result?.export_pct != null ? `${result.export_pct}%` : "—"}</td>
+                  <td>{result?.export_year ?? "—"}</td>
+                  <td>
+                    <span className={verdictBadgeClass(result?.export_verdict ?? ("Non traité" as const))}>
+                      {result?.export_verdict ?? "Non traité"}
+                    </span>
+                    <div className="subtitle" style={{ margin: 0 }}>
+                      {result ? `${result.export_confidence}% conf.` : ""}
+                    </div>
+                  </td>
+                  <td>{result?.export_layer ?? "—"}</td>
                   <td className="sources">
-                    {result?.ca_sources?.slice(0, 2).map((s, i) => (
-                      <div key={i}>{s}</div>
+                    {result?.ca_sources?.slice(0, 1).map((s, i) => (
+                      <div key={`ca-${i}`}>CA: {s}</div>
+                    ))}
+                    {result?.export_sources?.slice(0, 1).map((s, i) => (
+                      <div key={`exp-${i}`}>Export: {s}</div>
                     ))}
                   </td>
                 </tr>
