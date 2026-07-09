@@ -90,8 +90,8 @@ const RESPONSE_SCHEMA = {
     ca: {
       type: "object",
       properties: {
-        value_mad: { type: ["number", "null"] },
-        year: { type: ["integer", "null"] },
+        value_mad: { type: "number", nullable: true },
+        year: { type: "integer", nullable: true },
         status: { type: "string", enum: ["confirmed", "conflicting", "not_found"] },
         confidence: { type: "integer" },
         sources: { type: "array", items: { type: "string" } },
@@ -102,8 +102,8 @@ const RESPONSE_SCHEMA = {
     export: {
       type: "object",
       properties: {
-        pct: { type: ["number", "null"] },
-        year: { type: ["integer", "null"] },
+        pct: { type: "number", nullable: true },
+        year: { type: "integer", nullable: true },
         status: { type: "string", enum: ["confirmed", "conflicting", "not_found"] },
         confidence: { type: "integer" },
         sources: { type: "array", items: { type: "string" } },
