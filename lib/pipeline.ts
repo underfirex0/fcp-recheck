@@ -72,6 +72,22 @@ interface ExportOutcome {
 }
 
 /**
+ * A field extraction is only usable as a final answer if it actually contains
+ * a number — a range-based source (e.g. "entre 100M et 500M MAD") sometimes
+ * makes Gemini report status "confirmed" or "conflicting" with real confidence
+ * but a null value, since it genuinely can't collapse a range into one exact
+ * figure. That must NOT be treated as resolved: it needs to fall through to
+ * Tavily/estimation like a real not_found, or it silently dead-ends with a
+ * verdict of "needs correction" but no actual suggested number to correct to.
+ */
+function isUsableCa(e: CaExtraction): boolean {
+  return e.status !== "not_found" && e.value_mad !== null;
+}
+function isUsableExport(e: ExportExtraction): boolean {
+  return e.status !== "not_found" && (e.value_mad !== null || e.pct !== null);
+}
+
+/**
  * Resolves the CA field through layers 2 (Tavily fallback) and 4 (estimation),
  * given whatever layer 1 (grounding) + extraction already produced.
  */
@@ -80,7 +96,7 @@ async function resolveCa(
   fromGrounding: CaExtraction,
   groundingModel: "flash" | "pro"
 ): Promise<CaOutcome> {
-  if (fromGrounding.status !== "not_found") {
+  if (isUsableCa(fromGrounding)) {
     return {
       value_mad: fromGrounding.value_mad,
       year: fromGrounding.year,
@@ -97,7 +113,7 @@ async function resolveCa(
     const results = await tavilySearch(buildCaQuery(company));
     const context = formatResultsForPrompt("Chiffre d'Affaires (Tavily, recherche de secours)", results);
     const tavilyExtraction = await extractCaFromText(company, context);
-    if (tavilyExtraction.status !== "not_found") {
+    if (isUsableCa(tavilyExtraction)) {
       return {
         value_mad: tavilyExtraction.value_mad,
         year: tavilyExtraction.year,
@@ -138,7 +154,7 @@ async function resolveExport(
   fromGrounding: ExportExtraction,
   groundingModel: "flash" | "pro"
 ): Promise<ExportOutcome> {
-  if (fromGrounding.status !== "not_found") {
+  if (isUsableExport(fromGrounding)) {
     return {
       value_mad: fromGrounding.value_mad,
       value_derived: false,
@@ -157,7 +173,7 @@ async function resolveExport(
     const results = await tavilySearch(buildExportQuery(company));
     const context = formatResultsForPrompt("Part Export (Tavily, recherche de secours)", results);
     const tavilyExtraction = await extractExportFromText(company, context);
-    if (tavilyExtraction.status !== "not_found") {
+    if (isUsableExport(tavilyExtraction)) {
       return {
         value_mad: tavilyExtraction.value_mad,
         value_derived: false,

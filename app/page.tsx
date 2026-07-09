@@ -78,6 +78,11 @@ export default function Home() {
   const [processedCount, setProcessedCount] = useState(0);
   const [total, setTotal] = useState(0);
   const [errors, setErrors] = useState<{ code_firme: string; error: string }[]>([]);
+
+  const [resolvingLinks, setResolvingLinks] = useState(false);
+  const [linkErrors, setLinkErrors] = useState<{ code_firme: string; error: string }[]>([]);
+  const [linksDone, setLinksDone] = useState(0);
+  const linksStopRef = useRef(false);
   const stopRef = useRef(false);
 
   const [rows, setRows] = useState<Row[]>([]);
@@ -225,6 +230,74 @@ export default function Home() {
 
   function stopProcessing() {
     stopRef.current = true;
+  }
+
+  async function runLinkResolution() {
+    setResolvingLinks(true);
+    linksStopRef.current = false;
+    setLinkErrors([]);
+    setLinksDone(0);
+    try {
+      while (!linksStopRef.current) {
+        const res = await fetch("/api/resolve-links", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ batchSize: 60 })
+        });
+
+        if (!res.body) throw new Error("Le serveur n'a pas retourné de flux de données.");
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let sawDone = false;
+        let doneRemaining = 0;
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            let event: any;
+            try {
+              event = JSON.parse(line);
+            } catch {
+              continue;
+            }
+            if (event.type === "company") {
+              setLinksDone((prev) => prev + 1);
+            } else if (event.type === "error") {
+              setLinkErrors((prev) => [...prev, { code_firme: event.code_firme, error: event.error }]);
+            } else if (event.type === "fatal") {
+              throw new Error(event.error);
+            } else if (event.type === "done") {
+              sawDone = true;
+              doneRemaining = event.remaining ?? 0;
+            }
+          }
+        }
+
+        if (!sawDone) {
+          throw new Error(
+            "Le flux s'est arrêté de façon inattendue. Cliquez à nouveau sur 'Corriger les liens sources' pour reprendre."
+          );
+        }
+        if (doneRemaining === 0) break;
+      }
+    } catch (err: any) {
+      setLinkErrors((prev) => [...prev, { code_firme: "—", error: err.message }]);
+    } finally {
+      setResolvingLinks(false);
+      await refreshResults();
+    }
+  }
+
+  function stopLinkResolution() {
+    linksStopRef.current = true;
   }
 
   const filteredRows = rows.filter((r) => {
@@ -399,8 +472,39 @@ export default function Home() {
       </div>
 
       <div className="panel">
+        <h2>3. Corriger les liens sources (liens Vertex → liens réels)</h2>
+        <p className="subtitle" style={{ marginTop: 0 }}>
+          Remplace les liens de redirection Google (vertexaisearch.cloud.google.com/...) par l'URL
+          réelle de la source, pour toutes les entreprises déjà traitées.
+        </p>
+        <div className="row">
+          <button onClick={runLinkResolution} disabled={resolvingLinks}>
+            {resolvingLinks ? "Résolution en cours…" : "Corriger les liens sources"}
+          </button>
+          {resolvingLinks && (
+            <button className="secondary" onClick={stopLinkResolution}>
+              Arrêter après le lot en cours
+            </button>
+          )}
+          <span className="subtitle" style={{ margin: 0 }}>{linksDone} liens corrigés</span>
+        </div>
+        {linkErrors.length > 0 && (
+          <div className="error-text">
+            {linkErrors.length} erreur(s) — relancez, seules les entreprises restantes seront reprises.
+            <ul>
+              {linkErrors.slice(0, 5).map((e, i) => (
+                <li key={i}>
+                  {e.code_firme}: {e.error}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      <div className="panel">
         <div className="row" style={{ justifyContent: "space-between" }}>
-          <h2 style={{ margin: 0 }}>3. Résultats</h2>
+          <h2 style={{ margin: 0 }}>4. Résultats</h2>
           <div className="row">
             <button className="secondary" onClick={refreshResults} disabled={loadingResults}>
               Rafraîchir

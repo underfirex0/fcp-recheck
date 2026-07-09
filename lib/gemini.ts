@@ -221,6 +221,7 @@ Tâche : structure cette réponse en JSON selon le schéma demandé.
 
 Règles strictes :
 - Si la réponse de recherche ne contient PAS d'information exploitable pour un champ → status = "not_found", les valeurs numériques = null, confidence = 0. NE DEVINE JAMAIS.
+- Si tu trouves uniquement une FOURCHETTE (ex: "entre 100M et 500M MAD", "supérieur à 1 milliard") plutôt qu'un chiffre exact → calcule et utilise le POINT MÉDIAN de la fourchette comme value_mad (pour "supérieur à X", utilise X × 1.5 comme estimation raisonnable), garde status = "confirmed", et baisse ta confidence pour refléter cette imprécision (max ~50). NE LAISSE JAMAIS value_mad à null si status n'est pas "not_found" — c'est une incohérence qui bloque tout le traitement en aval.
 - Si la réponse mentionne des chiffres incohérents entre eux → status = "conflicting".
 - Sinon → status = "confirmed", avec une confidence honnête (0-100) reflétant la fiabilité de la réponse de recherche.
 - N'invente jamais une source qui n'apparaît pas dans le texte ci-dessus.`;
@@ -289,7 +290,7 @@ const EXPORT_ONLY_SCHEMA = {
 } as const;
 
 export async function extractCaFromText(company: Company, contextText: string): Promise<CaExtraction> {
-  const prompt = `Extrais le chiffre d'affaires de ${companyLabel(company)} à partir de ce texte de recherche :\n\n${contextText}\n\nSi le texte ne contient pas de chiffre exploitable, status = "not_found", value_mad = null, confidence = 0. Ne devine jamais.`;
+  const prompt = `Extrais le chiffre d'affaires de ${companyLabel(company)} à partir de ce texte de recherche :\n\n${contextText}\n\nSi le texte ne contient pas de chiffre exploitable, status = "not_found", value_mad = null, confidence = 0. Si tu trouves seulement une fourchette, utilise le point médian comme value_mad, status = "confirmed", confidence réduite (max ~50). Ne laisse jamais value_mad à null si status n'est pas "not_found". Ne devine jamais un chiffre à partir de rien.`;
   return (await callGeminiJson(FLASH_MODEL, prompt, CA_ONLY_SCHEMA)) as CaExtraction;
 }
 
@@ -297,7 +298,7 @@ export async function extractExportFromText(
   company: Company,
   contextText: string
 ): Promise<ExportExtraction> {
-  const prompt = `Extrais le chiffre d'affaires export et/ou le pourcentage export de ${companyLabel(company)} à partir de ce texte de recherche :\n\n${contextText}\n\nSi le texte ne contient pas d'information exploitable, status = "not_found", value_mad et pct = null, confidence = 0. Ne devine jamais.`;
+  const prompt = `Extrais le chiffre d'affaires export et/ou le pourcentage export de ${companyLabel(company)} à partir de ce texte de recherche :\n\n${contextText}\n\nSi le texte ne contient pas d'information exploitable, status = "not_found", value_mad et pct = null, confidence = 0. Si tu trouves seulement une fourchette, utilise le point médian, status = "confirmed", confidence réduite (max ~50). Ne laisse jamais les deux valeurs à null si status n'est pas "not_found". Ne devine jamais.`;
   return (await callGeminiJson(FLASH_MODEL, prompt, EXPORT_ONLY_SCHEMA)) as ExportExtraction;
 }
 
