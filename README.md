@@ -38,6 +38,22 @@ decides which bracket it falls into.
 the raw "CA Export" MAD figure is computed as `CA × %` in code and flagged
 `export_value_derived: true` — clearly distinguished from a directly sourced amount.
 
+## Live streaming + parallel resolution
+
+Two performance/UX changes on top of the 4-layer design above:
+
+- **CA and Export now resolve in parallel** (`Promise.all` in `processCompany`), not
+  one after another — they only share the initial grounded search + extraction call.
+  This roughly halves per-company latency.
+- **Results stream to the UI live, per company**, instead of waiting for a whole batch.
+  `/api/process-batch` returns an NDJSON stream (one JSON line per event: `company`,
+  `error`, or `done`) using a concurrency-limited task pool (`lib/pipeline.ts:
+  createLimiter`) where each company reports the instant IT finishes, regardless of
+  others still in flight. The dashboard updates each row as its line arrives.
+- Concurrency defaults to 6 companies in flight at once; override with
+  `PIPELINE_CONCURRENCY` in your env if you hit rate limits (lower it) or want more
+  throughput and your Gemini/Tavily quota allows it (raise it).
+
 ## Setup
 
 1. Create a Supabase project, run `supabase/schema.sql` in its SQL editor.

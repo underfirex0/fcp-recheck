@@ -130,41 +130,73 @@ export default function Home() {
         const res = await fetch("/api/process-batch", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ batchSize: 4 })
+          body: JSON.stringify({ batchSize: 20 })
         });
 
-        const rawText = await res.text();
-        let data: any;
-        try {
-          data = JSON.parse(rawText);
-        } catch {
-          // Response wasn't JSON at all — almost always means the serverless
-          // function itself timed out or crashed (Vercel's own error page),
-          // not something our API code returned. Surface a clear message and
-          // stop the loop, but keep whatever was already saved to Supabase —
-          // resuming will pick up right where it left off.
-          await refreshResults();
+        if (!res.body) {
+          throw new Error("Le serveur n'a pas retourné de flux de données.");
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let sawDone = false;
+        let doneRemaining = 0;
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? ""; // keep the last (possibly partial) line for next chunk
+
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            let event: any;
+            try {
+              event = JSON.parse(line);
+            } catch {
+              continue; // ignore a malformed line rather than aborting the whole stream
+            }
+
+            if (event.type === "company") {
+              // Live update: this company just finished — merge it in immediately,
+              // no need to wait for the rest of the batch.
+              setRows((prev) =>
+                prev.map((r) =>
+                  r.company.code_firme === event.company.code_firme ? { ...r, result: event.result } : r
+                )
+              );
+              setProcessedCount((prev) => prev + 1);
+            } else if (event.type === "error") {
+              setErrors((prev) => [...prev, { code_firme: event.code_firme, error: event.error }]);
+            } else if (event.type === "fatal") {
+              throw new Error(event.error);
+            } else if (event.type === "done") {
+              sawDone = true;
+              doneRemaining = event.remaining ?? 0;
+            }
+          }
+        }
+
+        if (!sawDone) {
+          // Stream ended without a clean "done" line — almost always the
+          // function got killed mid-flight (timeout). Whatever companies DID
+          // finish were already streamed and saved; just let the user resume.
           throw new Error(
-            "Le serveur a mis trop de temps à répondre (timeout probable). Les entreprises déjà " +
+            "Le flux s'est arrêté de façon inattendue (timeout probable). Les entreprises déjà " +
               "traitées sont sauvegardées — cliquez à nouveau sur 'Lancer le traitement' pour reprendre."
           );
         }
 
-        if (!res.ok) throw new Error(data.error || "Erreur pendant le traitement.");
-
-        if (data.failed?.length) {
-          setErrors((prev) => [...prev, ...data.failed]);
-        }
-        await refreshResults();
-
-        if (data.processed === 0 && data.remaining === 0) break;
-        if (data.processed === 0 && data.failed?.length === 0) break; // safety: avoid infinite loop
+        if (doneRemaining === 0) break;
       }
     } catch (err: any) {
       setErrors((prev) => [...prev, { code_firme: "—", error: err.message }]);
-      await refreshResults();
     } finally {
       setProcessing(false);
+      await refreshResults(); // final sync as a safety net
     }
   }
 

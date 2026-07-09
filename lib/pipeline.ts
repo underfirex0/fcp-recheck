@@ -72,10 +72,8 @@ interface ExportOutcome {
 }
 
 /**
- * Runs the full 4-layer resolution for the CA field:
- *   1. Whatever came out of the grounded-search extraction (already done by caller)
- *   2. Tavily fallback search + re-extraction, if step 1 was not_found
- *   3. Pro reasoned estimation, if step 2 also came up empty
+ * Resolves the CA field through layers 2 (Tavily fallback) and 4 (estimation),
+ * given whatever layer 1 (grounding) + extraction already produced.
  */
 async function resolveCa(
   company: Company,
@@ -95,7 +93,6 @@ async function resolveCa(
     };
   }
 
-  // Layer 2: Tavily fallback.
   try {
     const results = await tavilySearch(buildCaQuery(company));
     const context = formatResultsForPrompt("Chiffre d'Affaires (Tavily, recherche de secours)", results);
@@ -113,11 +110,9 @@ async function resolveCa(
       };
     }
   } catch {
-    // Tavily fallback failing (e.g. all keys exhausted) shouldn't crash the
-    // whole company — just fall through to estimation.
+    // Tavily fallback failing shouldn't crash the whole company — fall through.
   }
 
-  // Layer 4: reasoned estimation.
   const estimate = await estimateCa(company);
   return {
     value_mad: estimate.value_mad,
@@ -131,11 +126,17 @@ async function resolveCa(
   };
 }
 
+/**
+ * Resolves the Export field group the same way. Deliberately does NOT depend
+ * on the CA outcome — that dependency (deriving a raw export amount from
+ * CA × %) is applied centrally in processCompany AFTER both fields resolve,
+ * so CA and Export can run fully in parallel instead of one waiting on the
+ * other.
+ */
 async function resolveExport(
   company: Company,
   fromGrounding: ExportExtraction,
-  groundingModel: "flash" | "pro",
-  resolvedCaValueMad: number | null
+  groundingModel: "flash" | "pro"
 ): Promise<ExportOutcome> {
   if (fromGrounding.status !== "not_found") {
     return {
@@ -152,7 +153,6 @@ async function resolveExport(
     };
   }
 
-  // Layer 2: Tavily fallback.
   try {
     const results = await tavilySearch(buildExportQuery(company));
     const context = formatResultsForPrompt("Part Export (Tavily, recherche de secours)", results);
@@ -175,23 +175,11 @@ async function resolveExport(
     // fall through to estimation
   }
 
-  // Layer 4: reasoned estimation.
   const estimate = await estimateExport(company);
   const hasEstimate = estimate.value_mad !== null || estimate.pct !== null;
-
-  // If the estimate only gave a %, derive the raw amount from the resolved CA
-  // (confirmed or itself estimated) rather than leaving it blank — clearly
-  // marked as derived, not sourced.
-  let valueMad = estimate.value_mad;
-  let derived = false;
-  if (valueMad === null && estimate.pct !== null && resolvedCaValueMad !== null) {
-    valueMad = Math.round((resolvedCaValueMad * estimate.pct) / 100);
-    derived = true;
-  }
-
   return {
-    value_mad: valueMad,
-    value_derived: derived,
+    value_mad: estimate.value_mad,
+    value_derived: false, // derivation, if any, is applied centrally afterwards
     pct: estimate.pct,
     year: null,
     status: hasEstimate ? "estimated" : "not_found",
@@ -205,14 +193,37 @@ async function resolveExport(
 
 /**
  * Processes exactly one company end-to-end through the full 4-layer pipeline.
+ * CA and Export are resolved IN PARALLEL — they only share the initial
+ * grounded search + extraction call, after which their fallback/estimation
+ * chains are fully independent. This roughly halves per-company latency
+ * versus resolving them one after another.
  * Does NOT write to Supabase — callers persist the result.
  */
 export async function processCompany(company: Company): Promise<RecheckResult> {
   const grounded = await groundedSearch(company);
   const { result, caModelUsed, exportModelUsed } = await extractFromGroundedAnswer(company, grounded);
 
-  const caOutcome = await resolveCa(company, result.ca, caModelUsed);
-  const exportOutcome = await resolveExport(company, result.export, exportModelUsed, caOutcome.value_mad);
+  const [caOutcome, exportOutcomeRaw] = await Promise.all([
+    resolveCa(company, result.ca, caModelUsed),
+    resolveExport(company, result.export, exportModelUsed)
+  ]);
+
+  // Central derivation: if we have a % but no raw export amount, and we do
+  // have a resolved CA value (from any layer), compute the amount in code —
+  // applies regardless of which layer produced the % (grounding, Tavily, or
+  // estimation), improving field completion without any extra API calls.
+  let exportOutcome = exportOutcomeRaw;
+  if (
+    exportOutcome.value_mad === null &&
+    exportOutcome.pct !== null &&
+    caOutcome.value_mad !== null
+  ) {
+    exportOutcome = {
+      ...exportOutcome,
+      value_mad: Math.round((caOutcome.value_mad * exportOutcome.pct) / 100),
+      value_derived: true
+    };
+  }
 
   const bracketSuggested = getBracket(caOutcome.value_mad);
   const caVerdict = computeCaVerdict(caOutcome.status, company.tranche_ca_actuelle, bracketSuggested);
@@ -250,11 +261,34 @@ export async function processCompany(company: Company): Promise<RecheckResult> {
 }
 
 /**
- * Fetches up to `limit` companies that don't yet have a recheck_results row,
- * processes them with limited concurrency, and upserts each result as soon as
- * it's ready so a crash mid-batch doesn't lose completed work.
+ * Simple concurrency-limiting semaphore. Unlike chunked Promise.all (the old
+ * design), each task reports as soon as IT individually finishes, regardless
+ * of the others in flight — this is what makes true live, per-company
+ * streaming possible instead of "wait for the whole wave."
  */
-export async function processBatch(limit: number) {
+export function createLimiter(concurrency: number) {
+  let active = 0;
+  const queue: (() => void)[] = [];
+
+  return async function limit<T>(fn: () => Promise<T>): Promise<T> {
+    if (active >= concurrency) {
+      await new Promise<void>((resolve) => queue.push(resolve));
+    }
+    active++;
+    try {
+      return await fn();
+    } finally {
+      active--;
+      const next = queue.shift();
+      if (next) next();
+    }
+  };
+}
+
+/** Companies that don't yet have a recheck_results row, capped at `limit`. */
+export async function getPendingCompanies(
+  limit: number
+): Promise<{ companies: Company[]; totalPending: number }> {
   const [{ data: allCompanies, error: companiesError }, { data: doneRows, error: doneError }] =
     await Promise.all([
       supabase.from("companies").select("*"),
@@ -265,37 +299,7 @@ export async function processBatch(limit: number) {
   if (doneError) throw new Error(`Failed to fetch recheck_results: ${doneError.message}`);
 
   const doneSet = new Set((doneRows ?? []).map((r) => r.code_firme));
-  const pending = (allCompanies ?? []).filter((c) => !doneSet.has(c.code_firme));
-  const companies = pending.slice(0, limit);
+  const pending = (allCompanies ?? []).filter((c) => !doneSet.has(c.code_firme)) as Company[];
 
-  if (companies.length === 0) {
-    return { processed: 0, failed: [] as { code_firme: string; error: string }[], remaining: 0 };
-  }
-
-  const failed: { code_firme: string; error: string }[] = [];
-  let processed = 0;
-
-  // Small concurrency — gentle enough to avoid tripping Gemini/Tavily rate limits.
-  const CONCURRENCY = 3;
-  for (let i = 0; i < companies.length; i += CONCURRENCY) {
-    const chunk = companies.slice(i, i + CONCURRENCY);
-    await Promise.all(
-      chunk.map(async (company) => {
-        try {
-          const result = await processCompany(company as Company);
-          const { error: upsertError } = await supabase
-            .from("recheck_results")
-            .upsert(result, { onConflict: "code_firme" });
-          if (upsertError) throw new Error(upsertError.message);
-          processed++;
-        } catch (err: any) {
-          failed.push({ code_firme: company.code_firme, error: String(err?.message ?? err) });
-        }
-      })
-    );
-  }
-
-  const remaining = Math.max(0, pending.length - companies.length);
-
-  return { processed, failed, remaining };
+  return { companies: pending.slice(0, limit), totalPending: pending.length };
 }
