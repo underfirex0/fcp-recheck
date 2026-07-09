@@ -9,6 +9,49 @@ import type { Company, GeminiExtraction } from "./types";
 // the *entire* service account JSON as a single environment variable
 // (GOOGLE_APPLICATION_CREDENTIALS_JSON) and pass the parsed credentials
 // directly to the underlying auth client — no file needed.
+function parseServiceAccountJson(raw: string): { client_email: string; private_key: string } {
+  let cleaned = raw.trim();
+
+  // Strip accidental markdown code fences (```json ... ``` or ``` ... ```).
+  cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+
+  // Strip a single layer of wrapping quotes, in case the whole blob got pasted
+  // as a quoted string (e.g. '"{...}"').
+  if (
+    (cleaned.startsWith('"') && cleaned.endsWith('"')) ||
+    (cleaned.startsWith("'") && cleaned.endsWith("'"))
+  ) {
+    cleaned = cleaned.slice(1, -1);
+  }
+
+  // Normalize "smart quotes" back to plain ASCII quotes — a very common
+  // corruption when JSON is copy-pasted through a rich-text editor, Notes app,
+  // or some browsers, which silently convert straight quotes to curly ones.
+  cleaned = cleaned
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2018\u2019]/g, "'");
+
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (!parsed.client_email || !parsed.private_key) {
+      throw new Error("missing client_email or private_key field");
+    }
+    return parsed;
+  } catch (err) {
+    const start = cleaned.slice(0, 40);
+    const end = cleaned.slice(-25);
+    throw new Error(
+      `GOOGLE_APPLICATION_CREDENTIALS_JSON could not be parsed as valid service ` +
+        `account JSON (${String(err instanceof Error ? err.message : err)}). ` +
+        `It should be the ENTIRE downloaded JSON file content, starting with '{' and ` +
+        `ending with '}', pasted as plain text (no surrounding quotes, no markdown ` +
+        `code fences, no smart/curly quotes). Value received starts with: "${start}..." ` +
+        `and ends with: "...${end}". Re-copy directly from the JSON file in a plain ` +
+        `text editor (not Word/Notes/Pages) and re-paste.`
+    );
+  }
+}
+
 function getClient(): GoogleGenAI {
   const useVertex = process.env.GOOGLE_GENAI_USE_VERTEXAI === "true";
 
@@ -20,15 +63,7 @@ function getClient(): GoogleGenAI {
       );
     }
 
-    let credentials: { client_email: string; private_key: string };
-    try {
-      credentials = JSON.parse(rawCreds);
-    } catch {
-      throw new Error(
-        "GOOGLE_APPLICATION_CREDENTIALS_JSON is not valid JSON. Paste the entire " +
-          "service account JSON file content as-is, on a single line."
-      );
-    }
+    const credentials = parseServiceAccountJson(rawCreds);
 
     return new GoogleGenAI({
       vertexai: true,
