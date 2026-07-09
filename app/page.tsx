@@ -32,6 +32,8 @@ interface ResultRow {
   export_model_used: string | null;
   export_sources: string[];
   export_reasoning: string;
+
+  processed_at: string | null;
 }
 
 interface Row {
@@ -82,6 +84,17 @@ export default function Home() {
   const [filter, setFilter] = useState<Verdict | "Tous" | "Non traité">("Tous");
   const [loadingResults, setLoadingResults] = useState(false);
 
+  // Presentation mode for sharing a link (e.g. with leadership): visit the
+  // site with ?viewer=1. Hides the upload/processing controls and shows a
+  // clean auto-refreshing live dashboard instead. Read client-side only
+  // (not via useSearchParams) so no Suspense boundary is needed and the page
+  // stays statically prerenderable.
+  const [isViewer, setIsViewer] = useState(false);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setIsViewer(params.get("viewer") === "1");
+  }, []);
+
   const refreshResults = useCallback(async () => {
     setLoadingResults(true);
     try {
@@ -100,6 +113,16 @@ export default function Home() {
   useEffect(() => {
     refreshResults();
   }, [refreshResults]);
+
+  // Viewer mode has no processing loop of its own — processing actually runs
+  // inside whoever's browser has the operator page open and is streaming
+  // /api/process-batch. This just polls Supabase periodically so the viewer
+  // sees new rows land in near-real-time without doing any work itself.
+  useEffect(() => {
+    if (!isViewer) return;
+    const interval = setInterval(refreshResults, 4000);
+    return () => clearInterval(interval);
+  }, [isViewer, refreshResults]);
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -211,6 +234,118 @@ export default function Home() {
   });
 
   const progressPct = total > 0 ? Math.round((processedCount / total) * 100) : 0;
+
+  function countBy(field: "ca_verdict" | "export_verdict", verdict: Verdict): number {
+    return rows.filter((r) => r.result?.[field] === verdict).length;
+  }
+
+  // Most-recently-processed companies first — this is what makes the viewer
+  // feel "live" rather than just a static alphabetical list.
+  const liveFeed = [...rows]
+    .filter((r) => r.result !== null)
+    .sort((a, b) => {
+      const ta = a.result?.processed_at ? new Date(a.result.processed_at).getTime() : 0;
+      const tb = b.result?.processed_at ? new Date(b.result.processed_at).getTime() : 0;
+      return tb - ta;
+    });
+
+  if (isViewer) {
+    return (
+      <main className="container">
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <h1>FCP — Suivi en direct</h1>
+            <p className="subtitle" style={{ marginBottom: 8 }}>
+              Vérification du chiffre d'affaires et de la part export des entreprises membres.
+            </p>
+          </div>
+          <span className="live-badge">
+            <span className="live-dot" /> En direct
+          </span>
+        </div>
+
+        <div className="panel">
+          <div className="big-progress">
+            {processedCount} <span className="big-progress-of">/ {total}</span>
+          </div>
+          <p className="subtitle" style={{ margin: "2px 0 10px" }}>entreprises traitées</p>
+          <div className="progress-bar-track">
+            <div className="progress-bar-fill" style={{ width: `${progressPct}%` }} />
+          </div>
+        </div>
+
+        <div className="panel">
+          <h2>Chiffre d'affaires</h2>
+          <div className="stat-grid">
+            <div className="stat-chip stat-green">
+              <div className="stat-num">{countBy("ca_verdict", "Confirmé")}</div>
+              <div className="stat-label">Confirmé</div>
+            </div>
+            <div className="stat-chip stat-orange">
+              <div className="stat-num">{countBy("ca_verdict", "À corriger")}</div>
+              <div className="stat-label">À corriger</div>
+            </div>
+            <div className="stat-chip stat-blue">
+              <div className="stat-num">{countBy("ca_verdict", "Estimé")}</div>
+              <div className="stat-label">Estimé</div>
+            </div>
+            <div className="stat-chip stat-red">
+              <div className="stat-num">{countBy("ca_verdict", "Donnée insuffisante")}</div>
+              <div className="stat-label">Insuffisant</div>
+            </div>
+          </div>
+
+          <h2 style={{ marginTop: 18 }}>Export</h2>
+          <div className="stat-grid">
+            <div className="stat-chip stat-green">
+              <div className="stat-num">{countBy("export_verdict", "Confirmé")}</div>
+              <div className="stat-label">Confirmé</div>
+            </div>
+            <div className="stat-chip stat-blue">
+              <div className="stat-num">{countBy("export_verdict", "Estimé")}</div>
+              <div className="stat-label">Estimé</div>
+            </div>
+            <div className="stat-chip stat-red">
+              <div className="stat-num">{countBy("export_verdict", "Donnée insuffisante")}</div>
+              <div className="stat-label">Insuffisant</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="panel">
+          <h2>Dernières entreprises traitées</h2>
+          <div className="live-feed">
+            {liveFeed.length === 0 && (
+              <p className="subtitle" style={{ margin: 0 }}>En attente des premiers résultats…</p>
+            )}
+            {liveFeed.map(({ company, result }) => (
+              <div className="feed-card" key={company.code_firme}>
+                <div className="feed-card-top">
+                  <strong>{company.raison_sociale}</strong>
+                  <span className="subtitle" style={{ margin: 0 }}>{company.ville}</span>
+                </div>
+                <div className="feed-card-row">
+                  <span className="diff-old">{company.tranche_ca_actuelle}</span>
+                  <span>→</span>
+                  <span className="diff-new">{result?.ca_bracket_suggested ?? "—"}</span>
+                  <span className={verdictBadgeClass(result?.ca_verdict ?? ("Non traité" as const))}>
+                    {result?.ca_verdict}
+                  </span>
+                </div>
+                <div className="feed-card-row">
+                  <span className="subtitle" style={{ margin: 0 }}>Export:</span>
+                  <span>{result?.export_pct != null ? `${result.export_pct}%` : "—"}</span>
+                  <span className={verdictBadgeClass(result?.export_verdict ?? ("Non traité" as const))}>
+                    {result?.export_verdict}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="container">

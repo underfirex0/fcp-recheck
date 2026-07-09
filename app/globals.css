@@ -118,6 +118,89 @@ tbody tr:hover { background: #fafbfc; }
 .error-text { color: var(--red); font-size: 13px; margin-top: 8px; }
 .sources { color: var(--text-secondary); font-size: 11px; max-width: 260px; }
 
+/* ---------------- Viewer (presentation) mode ---------------- */
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--green);
+  background: rgba(31,138,76,0.1);
+  padding: 5px 12px;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+  background: var(--green);
+  animation: livePulse 1.4s ease-in-out infinite;
+}
+@keyframes livePulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+.big-progress {
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.big-progress-of { font-size: 22px; font-weight: 500; color: var(--text-secondary); }
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 10px;
+}
+.stat-chip {
+  border-radius: 10px;
+  padding: 12px 10px;
+  text-align: center;
+  border: 1px solid var(--border);
+}
+.stat-num { font-size: 22px; font-weight: 700; }
+.stat-label { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.stat-green { background: rgba(31,138,76,0.07); }
+.stat-green .stat-num { color: var(--green); }
+.stat-orange { background: rgba(200,98,42,0.07); }
+.stat-orange .stat-num { color: var(--orange); }
+.stat-blue { background: rgba(63,102,224,0.07); }
+.stat-blue .stat-num { color: var(--accent); }
+.stat-red { background: rgba(194,59,59,0.07); }
+.stat-red .stat-num { color: var(--red); }
+
+.live-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 600px;
+  overflow-y: auto;
+}
+.feed-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.feed-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+.feed-card-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
 /* ---------------- Mobile responsiveness ---------------- */
 @media (max-width: 640px) {
   .container { padding: 16px 12px 60px; }
@@ -141,6 +224,10 @@ tbody tr:hover { background: #fafbfc; }
      page.tsx via overflowX: auto) rather than reflowing into cards — with
      12 columns of financial data, a scrollable table is more usable on a
      small screen than cramming everything into stacked cards. */
+
+  .big-progress { font-size: 32px; }
+  .stat-num { font-size: 18px; }
+  .feed-card { padding: 10px 12px; }
 }
 
 @media (max-width: 420px) {
