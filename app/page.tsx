@@ -81,7 +81,9 @@ export default function Home() {
 
   const [resolvingLinks, setResolvingLinks] = useState(false);
   const [linkErrors, setLinkErrors] = useState<{ code_firme: string; error: string }[]>([]);
-  const [linksDone, setLinksDone] = useState(0);
+  const [companiesChecked, setCompaniesChecked] = useState(0);
+  const [linksActuallyResolved, setLinksActuallyResolved] = useState(0);
+  const [linksExhausted, setLinksExhausted] = useState(0);
   const linksStopRef = useRef(false);
   const stopRef = useRef(false);
 
@@ -236,7 +238,9 @@ export default function Home() {
     setResolvingLinks(true);
     linksStopRef.current = false;
     setLinkErrors([]);
-    setLinksDone(0);
+    setCompaniesChecked(0);
+    setLinksActuallyResolved(0);
+    setLinksExhausted(0);
     try {
       while (!linksStopRef.current) {
         const res = await fetch("/api/resolve-links", {
@@ -269,7 +273,8 @@ export default function Home() {
               continue;
             }
             if (event.type === "company") {
-              setLinksDone((prev) => prev + 1);
+              setCompaniesChecked((prev) => prev + 1);
+              setLinksActuallyResolved((prev) => prev + (event.linksResolved ?? 0));
             } else if (event.type === "error") {
               setLinkErrors((prev) => [...prev, { code_firme: event.code_firme, error: event.error }]);
             } else if (event.type === "fatal") {
@@ -277,6 +282,7 @@ export default function Home() {
             } else if (event.type === "done") {
               sawDone = true;
               doneRemaining = event.remaining ?? 0;
+              setLinksExhausted(event.exhausted ?? 0);
             }
           }
         }
@@ -486,8 +492,16 @@ export default function Home() {
               Arrêter après le lot en cours
             </button>
           )}
-          <span className="subtitle" style={{ margin: 0 }}>{linksDone} liens corrigés</span>
+          <span className="subtitle" style={{ margin: 0 }}>
+            {companiesChecked} entreprises vérifiées · {linksActuallyResolved} liens réellement corrigés
+          </span>
         </div>
+        {linksExhausted > 0 && (
+          <p className="subtitle" style={{ marginTop: 8, marginBottom: 0 }}>
+            {linksExhausted} entreprise(s) ont encore des liens non résolus après 3 tentatives — ils resteront
+            en lien Vertex (fonctionnel si cliqué, mais pas résolu en URL directe).
+          </p>
+        )}
         {linkErrors.length > 0 && (
           <div className="error-text">
             {linkErrors.length} erreur(s) — relancez, seules les entreprises restantes seront reprises.

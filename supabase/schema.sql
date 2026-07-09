@@ -46,7 +46,8 @@ create table if not exists recheck_results (
   export_model_used text,             -- 'flash' | 'pro'
 
   reviewed boolean not null default false,
-  processed_at timestamptz not null default now()
+  processed_at timestamptz not null default now(),
+  link_resolve_attempts int not null default 0
 );
 
 create index if not exists idx_recheck_ca_verdict on recheck_results (ca_verdict);
