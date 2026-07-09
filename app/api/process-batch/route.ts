@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 // in time simply isn't in this response; resuming picks it up next call).
 export const maxDuration = 300;
 
-const DEFAULT_CONCURRENCY = Number(process.env.PIPELINE_CONCURRENCY) || 6;
+const DEFAULT_CONCURRENCY = Number(process.env.PIPELINE_CONCURRENCY) || 10;
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
@@ -29,8 +29,7 @@ export async function POST(req: NextRequest) {
 
         if (companies.length === 0) {
           send({ type: "done", processed: 0, remaining: 0 });
-          controller.close();
-          return;
+          return; // `finally` below closes the controller — don't close it twice
         }
 
         const limit = createLimiter(DEFAULT_CONCURRENCY);

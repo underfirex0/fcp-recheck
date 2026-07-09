@@ -1,13 +1,13 @@
 :root {
-  --bg: #0f1115;
-  --panel: #171a21;
-  --border: #2a2e38;
-  --text: #e8e9ec;
-  --text-secondary: #9a9fab;
-  --accent: #4f7cff;
-  --green: #2a7a52;
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --border: #e2e5ea;
+  --text: #1a1d23;
+  --text-secondary: #6b7280;
+  --accent: #3f66e0;
+  --green: #1f8a4c;
   --orange: #c8622a;
-  --red: #b84040;
+  --red: #c23b3b;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
@@ -34,6 +34,7 @@ h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
   border-radius: 12px;
   padding: 20px;
   margin-bottom: 20px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
 }
 
 .panel h2 {
@@ -61,6 +62,7 @@ button.secondary { background: var(--border); color: var(--text); }
 input[type="file"] {
   color: var(--text-secondary);
   font-size: 13px;
+  max-width: 100%;
 }
 
 .progress-bar-track {
@@ -91,6 +93,7 @@ th, td {
   vertical-align: top;
 }
 th { color: var(--text-secondary); font-weight: 500; position: sticky; top: 0; background: var(--panel); }
+tbody tr:hover { background: #fafbfc; }
 
 .badge {
   display: inline-block;
@@ -99,18 +102,48 @@ th { color: var(--text-secondary); font-weight: 500; position: sticky; top: 0; b
   font-size: 11px;
   font-weight: 600;
 }
-.badge-confirme { background: rgba(42,122,82,0.2); color: #4fbf85; }
-.badge-corriger { background: rgba(200,98,42,0.2); color: #e08a52; }
-.badge-estime { background: rgba(79,124,255,0.2); color: #7d9dff; }
-.badge-insuffisante { background: rgba(184,64,64,0.2); color: #e07070; }
+.badge-confirme { background: rgba(31,138,76,0.12); color: var(--green); }
+.badge-corriger { background: rgba(200,98,42,0.12); color: var(--orange); }
+.badge-estime { background: rgba(63,102,224,0.12); color: var(--accent); }
+.badge-insuffisante { background: rgba(194,59,59,0.12); color: var(--red); }
 .badge-neutral { background: var(--border); color: var(--text-secondary); }
 
 .diff-old { color: var(--text-secondary); text-decoration: line-through; font-size: 12px; }
 .diff-new { color: var(--text); font-weight: 500; }
 
-.filters { display: flex; gap: 8px; margin-bottom: 14px; }
+.filters { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
 .filters button { background: var(--border); color: var(--text-secondary); padding: 6px 14px; font-size: 13px; }
 .filters button.active { background: var(--accent); color: white; }
 
-.error-text { color: #e07070; font-size: 13px; margin-top: 8px; }
+.error-text { color: var(--red); font-size: 13px; margin-top: 8px; }
 .sources { color: var(--text-secondary); font-size: 11px; max-width: 260px; }
+
+/* ---------------- Mobile responsiveness ---------------- */
+@media (max-width: 640px) {
+  .container { padding: 16px 12px 60px; }
+  h1 { font-size: 18px; }
+  .subtitle { font-size: 13px; margin-bottom: 20px; }
+  .panel { padding: 14px; border-radius: 10px; }
+  .panel h2 { font-size: 12px; }
+
+  .row { gap: 8px; }
+  button { padding: 9px 14px; font-size: 13px; width: 100%; }
+  .row button { width: auto; flex: 1 1 auto; }
+
+  .filters { gap: 6px; }
+  .filters button { padding: 6px 10px; font-size: 12px; flex: 1 1 auto; }
+
+  table { font-size: 12px; }
+  th, td { padding: 6px 7px; }
+  .sources { max-width: 160px; font-size: 10px; }
+
+  /* The results table stays horizontally scrollable (handled inline in
+     page.tsx via overflowX: auto) rather than reflowing into cards — with
+     12 columns of financial data, a scrollable table is more usable on a
+     small screen than cramming everything into stacked cards. */
+}
+
+@media (max-width: 420px) {
+  h1 { font-size: 16px; }
+  .panel { padding: 12px; }
+}
