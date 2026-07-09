@@ -3,15 +3,41 @@ import type { Company, GeminiExtraction } from "./types";
 
 // Supports either Vertex AI (GCP project/credits) or the plain Gemini Developer
 // API (AI Studio key). Toggle with GOOGLE_GENAI_USE_VERTEXAI=true/false.
+//
+// For Vertex AI on a serverless platform like Vercel, there's no persistent
+// filesystem to point GOOGLE_APPLICATION_CREDENTIALS at, so instead we accept
+// the *entire* service account JSON as a single environment variable
+// (GOOGLE_APPLICATION_CREDENTIALS_JSON) and pass the parsed credentials
+// directly to the underlying auth client — no file needed.
 function getClient(): GoogleGenAI {
   const useVertex = process.env.GOOGLE_GENAI_USE_VERTEXAI === "true";
+
   if (useVertex) {
+    const rawCreds = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+    if (!rawCreds) {
+      throw new Error(
+        "GOOGLE_GENAI_USE_VERTEXAI=true but GOOGLE_APPLICATION_CREDENTIALS_JSON is missing."
+      );
+    }
+
+    let credentials: { client_email: string; private_key: string };
+    try {
+      credentials = JSON.parse(rawCreds);
+    } catch {
+      throw new Error(
+        "GOOGLE_APPLICATION_CREDENTIALS_JSON is not valid JSON. Paste the entire " +
+          "service account JSON file content as-is, on a single line."
+      );
+    }
+
     return new GoogleGenAI({
       vertexai: true,
       project: process.env.GCP_PROJECT,
-      location: process.env.GCP_LOCATION || "us-central1"
+      location: process.env.GCP_LOCATION || "us-central1",
+      googleAuthOptions: { credentials }
     });
   }
+
   return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 }
 
